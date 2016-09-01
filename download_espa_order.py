@@ -19,6 +19,13 @@ Changes:
 3. Increased a delay range from 5-30 seconds to 1-60 seconds during downloads.
 4. The progress bar has not been implemented as it only pops up at the end of a file download. However, the function is still in place.
 
+1 September 2016: Guy Serbin added:
+1. Modified download method from shutil.copyfileobj to in-file copyfileobj function, based upon code in http://stackoverflow.com/questions/1517616/stream-large-binary-files-with-urllib2-to-file
+2. This function now works with the download progress bar.
+3. Diagnostic information like file size in MB and download start time added.
+4. A timeout function for 30 minutes has been added using multiprocessing.Progress, and set to retry downloads five times before failing.
+Note: I have only tested this on Python 3.4 running on a Windows 64 bit machine. 
+
 """
 
 import sys
@@ -34,6 +41,9 @@ import os
 import time
 import random
 import base64
+from multiprocessing import Process
+
+CHUNK = 16
 
 def drawProgressBar(first_byte, file_size, barLen = 40):
     # This function was adapted from Jacob Tsui's answer on http://stackoverflow.com/questions/3002085/python-to-print-out-status-bar-and-percentage
@@ -48,6 +58,15 @@ def drawProgressBar(first_byte, file_size, barLen = 40):
             progress += " "
     sys.stdout.write("[ %s ] %.2f%% (%d/%d)" % (progress, percent * 100, first_byte, file_size))
     sys.stdout.flush()
+
+def copyfileobj(source, target, first_byte, file_size): # This replaces shutil.copyfileobj
+    while True:
+        chunk = source.read(CHUNK)
+        if not chunk: break
+        target.write(chunk)
+        first_byte += len(chunk)
+        drawProgressBar(first_byte, file_size)
+    
 
 
 class SceneFeed(object):
@@ -170,27 +189,27 @@ class LocalStorage(object):
         else:
             first_byte = 0
 
-        print ("Downloading %s, file number %d of %d, to: %s" % (scene.name, scene.filenum, scene.numfiles, download_directory))
+        print ("Downloading %s (%03f MB), file number %d of %d, to: %s (%s)" % (scene.name, float(file_size)/(1024**2), scene.filenum, scene.numfiles, download_directory, time.strftime('%Y-%m-%d %H:%M:%S',time.localtime())))
 
         while first_byte < file_size:
             try: # Added this to keep the script from crashing if the remote host closes the connection. Instead, it moves on to the next file.
-                first_byte = self._download(first_byte)
+                first_byte = self._download(first_byte, file_size)
 #                drawProgressBar(first_byte, file_size)
-                time.sleep(random.randint(1, 60)) # Expanded the range of this, hopefully to reduce the amount of timeouts that may occur with downloading. Not sure if it will have any real effect.
+                time.sleep(random.randint(10, 30)) # Expanded the range of this, hopefully to reduce the amount of timeouts that may occur with downloading. Not sure if it will have any real effect.
             except Exception as e:
                 print(str(e))
                 break
         if first_byte >= file_size:
             os.rename(self.tmp_scene_path(scene), self.scene_path(scene))
 
-    def _download(self, first_byte):
+    def _download(self, first_byte, file_size):
 #        try:
             req = ul.Request(scene.srcurl)
             req.headers['Range'] = 'bytes={}-'.format(first_byte)
     
             with open(self.tmp_scene_path(scene), 'ab') as target:
                 source = ul.urlopen(req)
-                shutil.copyfileobj(source, target)
+                copyfileobj(source, target, first_byte, file_size) # shutil.copyfileobj(source, target)
     
             return os.path.getsize(self.tmp_scene_path(scene))
 #        except Exception as e:
@@ -248,14 +267,38 @@ if __name__ == '__main__':
     parser.add_argument("-i", "--host",
                         required=False)
 
+    parser.add_argument("-t", "--timeout",
+                        required=False, default = 30, help = "Download timeout in minutes", type = int)
 
     args = parser.parse_args()
     
     storage = LocalStorage(args.target_directory)
     
+    timeout =args.timeout * 60 # convert timeout from minutes to seconds
+    
     print('Retrieving Feed')
     sf = SceneFeed(args.email, args.username, args.password, args.host).get_items(args.order)
     for scene in sf:
-        print('\nNow processing scene %s.'%(scene.name))
-        storage.store(scene)
+        if not storage.is_stored(scene):
+            numtries = 1
+            print('\nNow processing scene %s.'%(scene.name))
+            while numtries < 6:
+                print('Attempt %d of 5'%numtries)
+                p = Process(target = storage.store(scene))
+                p.start()
+                # wait until process finishes or times out
+                p.join(timeout)
+#                storage.store(scene)
+                # If thread is still active
+                if p.is_alive():
+                    print('Error: A download timeout has occurred.')
+                    # terminate the process
+                    p.terminate()
+                    p.join()
+                if storage.is_stored(scene):
+                    numtries = 6
+                else:
+                    numtries += 1
+            if numtries == 6 and not storage.is_stored(scene):
+                print('ERROR: Download failed.')
         
