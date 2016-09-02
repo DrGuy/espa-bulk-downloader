@@ -26,6 +26,8 @@ Changes:
 4. A timeout function for 30 minutes has been added using multiprocessing.Progress, and set to retry downloads five times before failing.
 Note: I have only tested this on Python 3.4 running on a Windows 64 bit machine. 
 
+2 September 2015: Guy Serbin modified LocalStorage class to close opened URL objects to improve memory usage.
+
 """
 
 import sys
@@ -201,16 +203,21 @@ class LocalStorage(object):
                 break
         if first_byte >= file_size:
             os.rename(self.tmp_scene_path(scene), self.scene_path(scene))
+            # Free up memory
+            head = None
+            req = None
 
-    def _download(self, first_byte, file_size):
+    def _download(self, first_byte, file_size): 
 #        try:
-            req = ul.Request(scene.srcurl)
+            req = ul.Request(scene.srcurl) 
             req.headers['Range'] = 'bytes={}-'.format(first_byte)
     
             with open(self.tmp_scene_path(scene), 'ab') as target:
                 source = ul.urlopen(req)
                 copyfileobj(source, target, first_byte, file_size) # shutil.copyfileobj(source, target)
     
+            req = None
+            source = None
             return os.path.getsize(self.tmp_scene_path(scene))
 #        except Exception as e:
 #            print(str(e))
