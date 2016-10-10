@@ -16,8 +16,6 @@ Changes:
 24 August 2016: Guy Serbin added:
 1. The downloads will now tell you which file number of all available scenes is being downloaded.
 2. Added a try/except clause for cases where the remote server closes the connection during a download.
-3. Increased a delay range from 5-30 seconds to 1-60 seconds during downloads.
-4. The progress bar has not been implemented as it only pops up at the end of a file download. However, the function is still in place.
 
 1 September 2016: Guy Serbin added:
 1. Modified download method from shutil.copyfileobj to in-file copyfileobj function, based upon code in http://stackoverflow.com/questions/1517616/stream-large-binary-files-with-urllib2-to-file
@@ -29,37 +27,28 @@ Note: I have only tested this on Python 3.4 running on a Windows 64 bit machine.
 2 September 2015: Guy Serbin modified LocalStorage class to close opened URL objects to improve memory usage.
 
 """
-
-import sys
-import feedparser
-if sys.version_info[0] !=3:
-    import urllib2 as ul
-else:
-    import urllib.request as ul
-#    import urllib.error
 import argparse
-import shutil
+import base64
+import feedparser
 import os
-import time
 import random
+<<<<<<< HEAD
 import base64
 from multiprocessing import Process
 
 CHUNK = 16
+=======
+import shutil
+import sys
+import time
 
-def drawProgressBar(first_byte, file_size, barLen = 40):
-    # This function was adapted from Jacob Tsui's answer on http://stackoverflow.com/questions/3002085/python-to-print-out-status-bar-and-percentage
-    # I have no idea how to get this to draw with download progression- it only appears after the download has completed.
-    percent = float(first_byte)/ float(file_size)   
-    sys.stdout.write("\r")
-    progress = ""
-    for i in range(barLen):
-        if i < int(barLen * percent):
-            progress += "="
-        else:
-            progress += " "
-    sys.stdout.write("[ %s ] %.2f%% (%d/%d)" % (progress, percent * 100, first_byte, file_size))
-    sys.stdout.flush()
+is_py3 = True if sys.version_info[0] == 3 else False
+>>>>>>> refs/remotes/USGS-EROS/master
+
+if is_py3:
+    import urllib.request as ul
+else:
+    import urllib2 as ul
 
 def copyfileobj(source, target, first_byte, file_size): # This replaces shutil.copyfileobj
     while True:
@@ -96,19 +85,18 @@ class SceneFeed(object):
         """get_items generates Scene objects for all scenes that are available to be
         downloaded.  Supply an orderid to look for a particular order, otherwise all
         orders for self.email will be returned"""
-        
-        #yield Scenes with download urls
 
         auth_str = "%s:%s" % (self.user, self.passw)
-        if sys.version_info[0] !=3:
-            bauth = base64.b64encode(auth_str)
-        else:
-            bauth = base64.b64encode(auth_str.encode())
+        if is_py3:
+            auth_str = auth_str.encode()
 
-        feed = feedparser.parse(self.feed_url, request_headers={"Authorization": bauth})
-        numfiles=len(feed.entries)
-        print('There are a total of %d files available for download.'%numfiles)
-        
+        feed = feedparser.parse(self.feed_url, request_headers={"Authorization": base64.b64encode(auth_str)})
+
+        num_downloads = len(feed.entries)
+        if orderid != 'ALL':
+            num_downloads = len([i for i in feed.entries if orderid in i['id']])
+        print('There are a total of %d files available for download.' % num_downloads)
+
         if feed.status == 403:
             print("user authentication failed")
             exit()
@@ -116,37 +104,28 @@ class SceneFeed(object):
         if feed.status == 404:
             print("there was a problem retrieving your order. verify your orderid is correct")
             exit()
-            
-        filenum = 1
-        for entry in feed.entries:
 
-            #description field looks like this
-            #'scene_status:thestatus,orderid:theid,orderdate:thedate'
+        for index, entry in enumerate(feed.entries):
+            # description field looks like this
+            # 'scene_status:thestatus,orderid:theid,orderdate:thedate'
             scene_order = entry.description.split(',')[1].split(':')[1]
 
-            #only return values if they are in the requested order            
+            # only return values if they are in the requested order
             if orderid == "ALL" or scene_order == orderid:
-                yield Scene(entry.link, scene_order, filenum, numfiles)
-            
-            filenum += 1
-            
+                yield Scene(entry.link, scene_order, index+1, num_downloads)
+
                 
 class Scene(object):
     
     def __init__(self, srcurl, orderid, filenum, numfiles):
-    
         self.srcurl = srcurl
-    
         self.orderid = orderid
         
         parts = self.srcurl.split("/")
-     
         self.filename = parts[len(parts) - 1]
         
         self.name = self.filename.split('.tar.gz')[0]
-        
         self.filenum = filenum
-        
         self.numfiles = numfiles
         
                   
@@ -175,22 +154,22 @@ class LocalStorage(object):
                     
         download_directory = self.directory_path(scene)
         
-        #make sure we have a target to land the scenes
+        # make sure we have a target to land the scenes
         if not os.path.exists(download_directory):
             os.makedirs(download_directory)
-            print ("Created target_directory:%s" % download_directory)
-        
+            print ("Created target_directory: %s " % download_directory)
+
         req = ul.Request(scene.srcurl)
         req.get_method = lambda: 'HEAD'
 
         head = ul.urlopen(req)
         file_size = int(head.headers['Content-Length'])
 
+        first_byte = 0
         if os.path.exists(self.tmp_scene_path(scene)):
             first_byte = os.path.getsize(self.tmp_scene_path(scene))
-        else:
-            first_byte = 0
 
+<<<<<<< HEAD
         print ("Downloading %s (%03f MB), file number %d of %d, to: %s (%s)" % (scene.name, float(file_size)/(1024**2), scene.filenum, scene.numfiles, download_directory, time.strftime('%Y-%m-%d %H:%M:%S',time.localtime())))
 
         while first_byte < file_size:
@@ -198,6 +177,17 @@ class LocalStorage(object):
                 first_byte = self._download(first_byte, file_size)
 #                drawProgressBar(first_byte, file_size)
                 time.sleep(random.randint(10, 30)) # Expanded the range of this, hopefully to reduce the amount of timeouts that may occur with downloading. Not sure if it will have any real effect.
+=======
+        print ("Downloading %s, file number %d of %d, to: %s" % (scene.name, scene.filenum,
+                                                                 scene.numfiles, download_directory))
+
+        while first_byte < file_size:
+            # Added try/except to keep the script from crashing if the remote host closes the connection.
+            # Instead, it moves on to the next file.
+            try:
+                first_byte = self._download(first_byte)
+                time.sleep(random.randint(5, 30))
+>>>>>>> refs/remotes/USGS-EROS/master
             except Exception as e:
                 print(str(e))
                 break
@@ -207,6 +197,7 @@ class LocalStorage(object):
             head = None
             req = None
 
+<<<<<<< HEAD
     def _download(self, first_byte, file_size): 
 #        try:
             req = ul.Request(scene.srcurl) 
@@ -221,10 +212,21 @@ class LocalStorage(object):
             return os.path.getsize(self.tmp_scene_path(scene))
 #        except Exception as e:
 #            print(str(e))
+=======
+    def _download(self, first_byte):
+        req = ul.Request(scene.srcurl)
+        req.headers['Range'] = 'bytes={}-'.format(first_byte)
+
+        with open(self.tmp_scene_path(scene), 'ab') as target:
+            source = ul.urlopen(req)
+            shutil.copyfileobj(source, target)
+
+        return os.path.getsize(self.tmp_scene_path(scene))
+>>>>>>> refs/remotes/USGS-EROS/master
 
 
 if __name__ == '__main__':
-    e_parts = ['ESPA Bulk Download Client Version 1.0.0. [Tested with Python 2.7]\n']
+    e_parts = list('ESPA Bulk Download Client Version 1.0.0. [Tested with Python 2.7]\n')
     e_parts.append('Retrieves all completed scenes for the user/order\n')
     e_parts.append('and places them into the target directory.\n')
     e_parts.append('Scenes are organized by order.\n\n')
@@ -274,6 +276,7 @@ if __name__ == '__main__':
     parser.add_argument("-i", "--host",
                         required=False)
 
+<<<<<<< HEAD
     parser.add_argument("-t", "--timeout",
                         required=False, default = 30, help = "Download timeout in minutes", type = int)
 
@@ -309,3 +312,14 @@ if __name__ == '__main__':
             if numtries == 6 and not storage.is_stored(scene):
                 print('ERROR: Download failed.')
         
+=======
+    args = parser.parse_args()
+    
+    storage = LocalStorage(args.target_directory)
+
+    print 'Retrieving Feed'
+    for scene in SceneFeed(args.email, args.username, args.password, args.host).get_items(args.order):
+        print('\nNow processing scene %s.' % scene.name)
+        storage.store(scene)
+
+>>>>>>> refs/remotes/USGS-EROS/master
