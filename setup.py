@@ -7,7 +7,7 @@ setup(
     name='download_espa_order',
 
     # Version number:
-    version='1.0.0',
+    version='2.1.0',
 
     # Application author details:
     author='David V. Hill',
@@ -31,6 +31,5 @@ setup(
 
     # Dependent packages (distributions)
     install_requires=[
-        'feedparser <= 5.1.2, >=5.1.2'
-    ],
+     ],
 )
