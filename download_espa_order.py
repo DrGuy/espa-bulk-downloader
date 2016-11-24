@@ -13,6 +13,7 @@ Changes:
 1. The downloads will now tell you which file number of all available scenes is being downloaded.
 2. Added a try/except clause for cases where the remote server closes the connection during a download.
 23 September 2016: Converted to using the ESPA API proper rather than relying on the RSS feed
+24 November 2016: Error logging function debugged
 """
 import argparse
 import base64
@@ -47,7 +48,7 @@ def logerror(f, message, *args, **kwargs):
             output.write('Time, File, Error\n')
     now = time.gmtime()
     with open(errorfile, 'a') as output:
-        output.write('{}, {}, {}\n'.format(now.strftime('%Y-%m-%d %H:%M:%S'), f, message))
+        output.write('{}, {}, {}\n'.format(time.strftime('%Y-%m-%d %H:%M:%S', now), f, message))
 
 class Api(object):
     def __init__(self, username, password, host):
